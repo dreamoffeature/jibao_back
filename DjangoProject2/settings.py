@@ -25,7 +25,11 @@ SECRET_KEY = 'django-insecure--l3^scjg&b187d_vv50#&$(!_tum3lqn-=!&($8p#vfy2^yyur
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '.onrender.com'  # Render的域名
+]
 
 
 # Application definition
@@ -43,6 +47,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',

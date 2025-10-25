@@ -1,0 +1,21 @@
+# render.yaml
+services:
+  - type: web
+    name: django-wechat-backend
+    env: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "python manage.py migrate && gunicorn myproject.wsgi:application"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: django_db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: WEB_CONCURRENCY
+        value: 4
+
+databases:
+  - name: django_db
+    plan: free
