@@ -306,12 +306,15 @@ class RecognizeDeviceModelView(APIView):
 
                 # 2. 筛选出被 task.device_model 包含的子串
                 matching_models = [dm for dm in all_device_models if dm in task.device_model]
-
-                # 3. 查找匹配的记录
-                template = DeviceTemplate.objects.filter(device_model__in=matching_models).first()
-                protect_fault_relation = template.protection_structure  # 简化后的结构：[]
-                device_type = template.device_type
-
+                if matching_models:
+                    # 3. 查找匹配的记录
+                    template = DeviceTemplate.objects.filter(device_model__in=matching_models).first()
+                    protect_fault_relation = template.protection_structure  # 简化后的结构：[]
+                    device_type = template.device_type
+                else:
+                    # 未识别到装置型号：返回空列表+提示
+                    template_found = False
+                    protect_fault_relation = []
             except DeviceTemplate.DoesNotExist:
                 # 未找到模板：返回默认的“保护层级-保护列表”映射
                 template_found = False
