@@ -5,7 +5,7 @@ services:
     env: python
     plan: free
     buildCommand: "./build.sh"
-    startCommand: "python manage.py migrate && gunicorn myproject.wsgi:application"
+    startCommand: "python manage.py migrate && gunicorn jibao_back.wsgi:application"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
