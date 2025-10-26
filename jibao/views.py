@@ -510,7 +510,7 @@ class TaskOcrRecognitionView(APIView):
                 return Response({"code": 400, "message": "未找到指定的定值单图片"}, status=400)
         except Exception as e:
             return Response({"code": 500, "message": f"获取图片失败：{str(e)}"}, status=500)
-
+        print('0000')
         # 4. 从模板获取需识别的参数列表
         try:
             all_device_models = DeviceTemplate.objects.values_list('device_model', flat=True)
@@ -522,13 +522,13 @@ class TaskOcrRecognitionView(APIView):
             if not template.params:
                 return Response({"code": 400, "message": f"装置模板{device_model}的定值参数配置为空"}, status=400)
 
-            required_params = list(template.params.values())
+            required_params = list(template.params.keys())
             if not required_params or any(not p for p in required_params):
                 return Response({"code": 400, "message": f"装置模板{device_model}的定值参数存在无效值"}, status=400)
 
         except Exception as e:
             return Response({"code": 500, "message": f"解析模板失败：{str(e)}"}, status=500)
-
+        print('111111')
         # 5. 使用增强版OCR识别
         try:
             merged_results = defaultdict(list)
@@ -551,20 +551,20 @@ class TaskOcrRecognitionView(APIView):
                     }
                     image_recognition_details.append(img_details)
                     continue
-
+                print('ssssssssss')
                 img_path = img.image.path
 
                 # 只识别尚未识别的参数
                 remaining_params = [p for p in required_params if p not in recognized_params]
-                table_result = ocr.extract_specified_fields(img_path, remaining_params)
-
+                table_result = ocr.extract_protection_settings(img_path, remaining_params)
+                print('bbbbbbbbbbbb',table_result)
                 # 记录单张图片的识别结果
                 img_details = {
                     "image_id": img.id,
                     "image_name": img.image.name.split("/")[-1],
                     "recognized_params": []
                 }
-
+                print('yyyyyyyyyyyyyy')
                 # 处理识别结果
                 newly_recognized = []
                 for param in required_params:
@@ -593,8 +593,9 @@ class TaskOcrRecognitionView(APIView):
                 image_recognition_details.append(img_details)
 
                 print(f"图片 {img_index + 1}: 新识别参数 {newly_recognized}")
-
+            print('2222222222')
         except Exception as e:
+            print('33333')
             return Response({"code": 500, "message": f"OCR识别失败：{str(e)}"}, status=500)
 
         # 6. 生成最终结果
