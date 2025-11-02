@@ -1,261 +1,3 @@
-# # coding=utf-8
-# import sys
-# import json
-# import base64
-# import re
-# from urllib.request import urlopen, Request
-# from urllib.error import URLError
-# from urllib.parse import urlencode
-#
-# # 兼容Python2和Python3
-# IS_PY3 = sys.version_info.major == 3
-#
-# # 忽略HTTPS证书验证
-# import ssl
-#
-# ssl._create_default_https_context = ssl._create_unverified_context
-#
-# # 百度OCR配置（请替换为你的实际密钥）
-# API_KEY = 'IlquMzBntv5vGDv6AIesxzWQ'
-# SECRET_KEY = '5F6xm3QO35FgP4mkoZQTm7R5njHCuhKp'
-#
-# # 百度OCR接口地址
-# TOKEN_URL = 'https://aip.baidubce.com/oauth/2.0/token'
-# OCR_ACCURATE_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/accurate_basic"  # 高精度通用识别
-# OCR_FORM_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/table"  # 表格识别（可选）
-#
-#
-# class BaiduOCR:
-#     def __init__(self):
-#         self.token = self.fetch_token()
-#         if not self.token:
-#             raise ValueError("获取百度OCR令牌失败，请检查API_KEY和SECRET_KEY")
-#
-#     def fetch_token(self):
-#         """获取百度OCR访问令牌"""
-#         params = {
-#             'grant_type': 'client_credentials',
-#             'client_id': API_KEY,
-#             'client_secret': SECRET_KEY
-#         }
-#         post_data = urlencode(params)
-#         if IS_PY3:
-#             post_data = post_data.encode('utf-8')
-#
-#         try:
-#             req = Request(TOKEN_URL, post_data)
-#             with urlopen(req, timeout=10) as f:
-#                 result_str = f.read()
-#             if IS_PY3:
-#                 result_str = result_str.decode()
-#
-#             result = json.loads(result_str)
-#             if 'access_token' in result:
-#                 return result['access_token']
-#             else:
-#                 print(f"获取令牌失败: {result}")
-#                 return None
-#         except URLError as e:
-#             print(f"网络错误: {e}")
-#             return None
-#
-#     def read_image_file(self, image_path):
-#         """读取本地图片文件并转换为base64编码"""
-#         try:
-#             with open(image_path, 'rb') as f:
-#                 image_data = f.read()
-#             return base64.b64encode(image_data).decode('utf-8')
-#         except Exception as e:
-#             print(f"读取图片失败: {e}")
-#             return None
-#
-#     def general_ocr(self, image_path):
-#         """通用文字识别（高精度版）"""
-#         image_base64 = self.read_image_file(image_path)
-#         if not image_base64:
-#             return None
-#
-#         url = f"{OCR_ACCURATE_URL}?access_token={self.token}"
-#         data = urlencode({
-#             'image': image_base64,
-#             'language_type': 'CHN_ENG'  # 中英文混合识别
-#         })
-#
-#         try:
-#             req = Request(url, data.encode('utf-8'))
-#             req.add_header('Content-Type', 'application/x-www-form-urlencoded')
-#             with urlopen(req, timeout=30) as f:
-#                 result_str = f.read()
-#             if IS_PY3:
-#                 result_str = result_str.decode()
-#             return json.loads(result_str)
-#         except URLError as e:
-#             print(f"OCR识别请求失败: {e}")
-#             return None
-#
-#     def extract_device_model_basic_info(self, image_path,pattern):
-#         ocr_result = self.general_ocr(image_path)
-#         if not ocr_result or 'words_result' not in ocr_result:
-#             return None
-#
-#         device_model = None
-#         found_device_label = False
-#         # 增强正则：支持匹配型号前后的冒号、空格等符号
-#         model_pattern = re.compile(r'[A-Za-z0-9\-]+')
-#         # 匹配“装置型号”及后续可能的符号（冒号、空格等）
-#         label_pattern = re.compile(rf'{pattern}[:：\s]*')
-#
-#         for words in ocr_result['words_result']:
-#             text = words['words'].strip()
-#             if not found_device_label:
-#                 # 检查是否包含“装置型号”及后续符号
-#                 if label_pattern.search(text):
-#                     found_device_label = True
-#                     # 移除“装置型号”及符号，提取剩余文本
-#                     remaining_text = label_pattern.sub('', text).strip()
-#                     # 从剩余文本中匹配型号
-#                     match = model_pattern.search(remaining_text)
-#                     if match:
-#                         device_model = match.group().strip()
-#                         return device_model
-#             else:
-#                 # 匹配下一行的型号
-#                 match = model_pattern.search(text)
-#                 if match:
-#                     device_model = match.group().strip()
-#                     break
-#
-#         return device_model
-#
-#     def table_ocr(self, image_path):
-#         """表格识别（返回结构化表格数据）"""
-#         image_base64 = self.read_image_file(image_path)
-#         if not image_base64:
-#             return None
-#
-#         url = f"{OCR_FORM_URL}?access_token={self.token}"
-#         data = urlencode({
-#             'image': image_base64,
-#             'request_type': 'excel'
-#         })
-#
-#         try:
-#             req = Request(url, data.encode('utf-8'))
-#             req.add_header('Content-Type', 'application/x-www-form-urlencoded')
-#             with urlopen(req, timeout=30) as f:
-#                 result_str = f.read()
-#             if IS_PY3:
-#                 result_str = result_str.decode()
-#             return json.loads(result_str)
-#         except URLError as e:
-#             print(f"表格识别请求失败: {e}")
-#             return None
-#
-#
-#
-#     def extract_specified_fields_from_table(self, image_path, target_fields):
-#         """
-#         提取表格中的指定字段，优先处理表头，保留数值清洗逻辑
-#         """
-#         table_result = self.table_ocr(image_path)
-#         if not table_result or 'tables_result' not in table_result:
-#             return {}
-#
-#         tables = table_result.get('tables_result', [])
-#         if not isinstance(tables, list) or len(tables) == 0:
-#             return {}
-#
-#         extracted = {}
-#
-#         for table in tables:
-#             if not isinstance(table, dict):
-#                 continue
-#             body = table.get('body', [])
-#             body_cells = body if isinstance(body, list) else [body]
-#
-#             for target_field in target_fields:
-#                 if target_field in extracted:
-#                     continue
-#
-#                 # 遍历表体单元格
-#                 field_cell = None
-#                 for cell in body_cells:
-#                     if not isinstance(cell, dict):
-#                         continue
-#                     cell_text = cell.get('words', '').strip()
-#                     if target_field in cell_text:
-#                         field_cell = cell
-#                         break
-#
-#                 if not field_cell:
-#                     continue
-#
-#                 # 提取表体字段对应的值（右侧相邻单元格）
-#                 value_text = self._get_right_value(field_cell, header_cells + body_cells)
-#                 # 清洗数值
-#                 cleaned_value = self.clean_value_text(value_text)
-#                 extracted[target_field] = cleaned_value if cleaned_value else value_text
-#
-#         return extracted
-#
-#     def _get_right_value(self, field_cell, all_cells):
-#         """辅助函数：获取字段单元格右侧相邻的值"""
-#         field_row = field_cell.get('row_start', 0)
-#         field_col = field_cell.get('col_start', 0)
-#         value_text = "未识别到"
-#
-#         # 按列号排序，优先取右侧相邻列
-#         sorted_cells = sorted(
-#             [c for c in all_cells if isinstance(c, dict)],
-#             key=lambda x: x.get('col_start', 0)
-#         )
-#
-#         for value_cell in sorted_cells:
-#             val_row = value_cell.get('row_start', 0)
-#             val_col = value_cell.get('col_start', 0)
-#             # 同 row + 列号大于字段列（右侧）
-#             if val_row == field_row and val_col > field_col:
-#                 value_text = value_cell.get('words', '').strip()
-#                 # 过滤无效值
-#                 if value_text in ['-', '—', '无', 'NULL', 'null', '']:
-#                     continue
-#                 break
-#
-#         return value_text
-#
-#     def clean_value_text(self, value_text):
-#         """
-#         数值清洗函数（保留核心逻辑）：
-#         - 去除字母和无效符号
-#         - 提取斜杠后的数字（如"100/5" → "5"）
-#         - 保留整数、小数（如"2.5A" → "2.5"，"3-5" → "35"）
-#         """
-#         if not value_text or value_text == "未识别到":
-#             return ""
-#
-#         # 步骤1：去除所有字母（a-z, A-Z）
-#         value_without_letters = re.sub(r'[A-Za-z]', '', value_text)
-#
-#         # 步骤2：去除横线、空格等干扰符号（保留小数点和斜杠）
-#         cleaned = re.sub(r'[-—_ ,，\s]', '', value_without_letters)
-#
-#         # 步骤3：处理斜杠（仅保留斜杠后的数字，如"100/5" → "5"）
-#         if '/' in cleaned or '\\' in cleaned:
-#             # 分割并取最后一部分（兼容/和\）
-#             parts = re.split(r'[/\\]', cleaned)
-#             cleaned = parts[-1] if parts else cleaned
-#
-#         # 步骤4：仅保留数字和小数点（过滤其他特殊符号）
-#         final_cleaned = re.sub(r'[^\d.]', '', cleaned)
-#
-#         # 处理多个小数点（仅保留第一个）
-#         if final_cleaned.count('.') > 1:
-#             first_dot = final_cleaned.index('.')
-#             final_cleaned = final_cleaned[:first_dot + 1] + final_cleaned[first_dot + 1:].replace('.', '')
-#
-#         return final_cleaned.strip()
-#
-
 # coding=utf-8
 import sys
 import json
@@ -482,52 +224,442 @@ class KeywordBasedParameterMapper:
                 'first': ['Ⅲ段', 'III段', '3段', '三段'],
                 'primary': ['过流', '时间', '时限'],
                 'secondary': ['定值', '值', '设置'],
-                'exclude': ['电流', 'Ⅱ段', 'II段', '2段', '二段', 'Ⅱ段', 'II段', '2段', '二段', '反时限']
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段', '反时限']
             },
             # 零序保护
             '零序过流I段电流定值': {
-                'must': ['零序'],
+                'must': ['零'],
                 'first': ['Ⅰ段', 'I段', '1段', '一段'],
-                'primary': ['零序', '过流', '电流'],
+                'primary': ['零序','零流','过流', '电流'],
                 'secondary': ['定值', '值'],
                 'exclude': ['时间', '时限', 'Ⅱ段', 'II段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段']
             },
             '零序过流I段时限定值': {
+                'must': ['零'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'primary': ['零序','零流','过流', '时间', '时限'],
+                'secondary': ['定值', '值'],
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段', '反时限']
+            },
+            '零序过流II段电流定值': {
+                'must': ['零'],
+                'first': ['Ⅱ段', 'II段', '2段', '二段'],
+                'primary': ['零序','零流','过流', '电流'],
+                'secondary': ['定值', '值'],
+                'exclude': ['时间', '时限', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段']
+            },
+            '零序过流II段时限定值': {
+                'must': ['零'],
+                'first': ['Ⅱ段', 'II段', '2段', '二段'],
+                'primary': [ '零序','零流','过流', '时间', '时限'],
+                'secondary': ['定值', '值'],
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段', '反时限']
+            },
+            '零序过流III段电流定值': {
+                'must': ['零'],
+                'first': ['Ⅲ段', 'III段', '3段', '三段'],
+                'primary': ['零序','零流','过流', '电流'],
+                'secondary': ['定值', '值'],
+                'exclude': ['时间', '时限', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段']
+            },
+            '零序过流III段时限定值': {
+                'must': ['零'],
+                'first': ['Ⅲ段', 'III段', '3段', '三段'],
+                'primary': [ '零序','零流','过流', '时间', '时限',],
+                'secondary': ['定值', '值'],
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段', '反时限']
+            }
+        },'line':{
+            '零序补偿系数KZ': {
+                'must': ['零序', '补偿'],
+                'first': ['KZ','电抗'],
+                'primary': ['零序', '补偿', '系数'],
+                'secondary': ['KZ', '值', '参数'],
+                'exclude': ['电流', '时间', '距离', '过流', '段','电阻']
+            },
+            '差动动作电流定值': {
+                'must': ['差动'],
+                'first': ['动作电流', '电流'],
+                'primary': ['差动', '动作', '电流'],
+                'secondary': ['定值', '值', '设置'],
+                'exclude': ['时间', '时限', '补偿', '系数', '距离', '过流', '段']
+            },
+            '线路正序灵敏角': {
+                'must': ['线路', '正序'],
+                'first': ['灵敏角', '角度'],
+                'primary': ['线路', '正序', '灵敏角'],
+                'secondary': ['值', '角度', '参数'],
+                'exclude': ['电流', '时间', '补偿', '系数', '距离', '过流', '段']
+            },
+            'CT变比': {
+                'must': ['CT'],
+                'first': ['变比'],
+                'primary': ['CT', '变比'],
+                'secondary': ['值', '参数', '比值'],
+                'exclude': ['电流', '时间', '补偿', '系数', '距离', '过流', '段']
+            },
+            '接地距离I段定值': {
+                'must': ['接地', '距离'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'primary': ['接地', '距离', '段','阻抗'],
+                'secondary': ['定值', '值', '设置'],
+                'exclude': ['电流', '时间', 'Ⅱ段', 'II段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段','相间']
+            },
+            '接地距离I段时间': {
+                'must': ['接地', '距离'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'primary': ['接地', '距离', '时间', '时限'],
+                'secondary': ['值', '设置', '参数'],
+                'exclude': ['电流','Ⅱ段', 'II段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段', '反时限','相间']
+            },
+            '接地距离II段定值': {
+                'must': ['接地', '距离'],
+                'first': ['Ⅱ段', 'II段', '2段', '二段'],
+                'primary': ['接地', '距离', '段','阻抗'],
+                'secondary': ['定值', '值', '设置'],
+                'exclude': ['电流', '时间', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段','相间']
+            },
+            '接地距离II段时间': {
+                'must': ['接地', '距离'],
+                'first': ['Ⅱ段', 'II段', '2段', '二段'],
+                'primary': ['接地', '距离', '时间', '时限'],
+                'secondary': ['值', '设置', '参数'],
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段', '反时限','相间']
+            },
+            '接地距离III段定值': {
+                'must': ['接地', '距离'],
+                'first': ['Ⅲ段', 'III段', '3段', '三段'],
+                'primary': ['接地', '距离', '段','阻抗'],
+                'secondary': ['定值', '值', '设置'],
+                'exclude': ['电流', '时间', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段','相间']
+            },
+            '接地距离III段时间': {
+                'must': ['接地', '距离'],
+                'first': ['Ⅲ段', 'III段', '3段', '三段'],
+                'primary': ['接地', '距离', '时间', '时限'],
+                'secondary': ['值', '设置', '参数'],
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段', '反时限','相间']
+            },
+            '相间距离I段定值': {
+                'must': ['相间', '距离'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'primary': ['相间', '距离', '段'],
+                'secondary': ['定值', '值', '设置'],
+                'exclude': ['电流', '时间', 'Ⅱ段', 'II段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段','接地']
+            },
+            '相间距离I段时间': {
+                'must': ['相间', '距离'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'primary': ['相间', '距离', '时间', '时限'],
+                'secondary': ['值', '设置', '参数'],
+                'exclude': ['电流', 'Ⅱ段', 'II段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段', '反时限', '接地']
+            },
+            '相间距离II段定值': {
+                'must': ['相间', '距离'],
+                'first': ['Ⅱ段', 'II段', '2段', '二段'],
+                'primary': ['相间', '距离', '段'],
+                'secondary': ['定值', '值', '设置'],
+                'exclude': ['电流', '时间', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段','接地']
+            },
+            '相间距离II段时间': {
+                'must': ['相间', '距离'],
+                'first': ['Ⅱ段', 'II段', '2段', '二段'],
+                'primary': ['相间', '距离', '时间', '时限'],
+                'secondary': ['值', '设置', '参数'],
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段', '反时限','接地']
+            },
+            '相间距离III段定值': {
+                'must': ['相间', '距离'],
+                'first': ['Ⅲ段', 'III段', '3段', '三段'],
+                'primary': ['相间', '距离', '段'],
+                'secondary': ['定值', '值', '设置'],
+                'exclude': ['电流', '时间', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段','接地']
+            },
+            '相间距离III段时间': {
+                'must': ['相间', '距离'],
+                'first': ['Ⅲ段', 'III段', '3段', '三段'],
+                'primary': ['相间', '距离', '时间', '时限'],
+                'secondary': ['值', '设置', '参数'],
+                'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段', '反时限','接地']
+            },
+            '零序过流I段定值': {
+                'must': ['零序','过流'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'primary': ['零序', '过流', '电流'],
+                'secondary': ['定值', '值'],
+                'exclude': ['时间', '时限', 'Ⅱ段', 'II段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段','起动']
+            },
+            '零序过流I段时间': {
                 'must': ['零序'],
                 'first': ['Ⅰ段', 'I段', '1段', '一段'],
                 'primary': ['零序', '过流', '时间', '时限'],
                 'secondary': ['定值', '值'],
                 'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段', '反时限']
             },
-            '零序过流II段电流定值': {
-                'must': ['零序'],
+            '零序过流II段定值': {
+                'must': ['零序','过流'],
                 'first': ['Ⅱ段', 'II段', '2段', '二段'],
                 'primary': ['零序', '过流', '电流'],
                 'secondary': ['定值', '值'],
-                'exclude': ['时间', '时限', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段']
+                'exclude': ['时间', '时限', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段','起动']
             },
-            '零序过流II段时限定值': {
+            '零序过流II段时间': {
                 'must': ['零序'],
                 'first': ['Ⅱ段', 'II段', '2段', '二段'],
                 'primary': ['零序', '过流', '时间', '时限'],
                 'secondary': ['定值', '值'],
                 'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅲ段', 'III段', '3段', '三段', '反时限']
             },
-            '零序过流III段电流定值': {
-                'must': ['零序'],
+            '零序过流III段定值': {
+                'must': ['零序','过流'],
                 'first': ['Ⅲ段', 'III段', '3段', '三段'],
                 'primary': ['零序', '过流', '电流'],
                 'secondary': ['定值', '值'],
-                'exclude': ['时间', '时限', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段']
+                'exclude': ['时间', '时限', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段','起动']
             },
-            '零序过流III段时限定值': {
+            '零序过流III段时间': {
                 'must': ['零序'],
                 'first': ['Ⅲ段', 'III段', '3段', '三段'],
                 'primary': ['零序', '过流', '时间', '时限'],
                 'secondary': ['定值', '值'],
                 'exclude': ['电流', 'Ⅰ段', 'I段', '1段', '一段', 'Ⅱ段', 'II段', '2段', '二段', '反时限']
-            }
+            },
+
+        },
+    "transform": {
+        "额定容量": {
+            "must": ["额定", "容量"],
+            "first": ["容量"],
+            "primary": ["额定", "容量"],
+            "secondary": ["值", "参数", "额定值"],
+            "exclude": ["电压", "电流", "CT", "变比", "过流", "零序", "段", "时间"]
+        },
+        "高压侧额定电压": {
+            "must": ["额定电压", "高压侧"],
+            "first": ["高压侧", "额定电压"],
+            "primary": ["高压侧", "额定", "电压"],
+            "secondary": ["值", "参数", "额定值"],
+            "exclude": ["容量", "电流", "CT", "变比", "过流", "零序", "段", "时间"]
+        },
+        "中压侧额定电压": {
+            "must": ["额定电压", "中压侧"],
+            "first": ["中压侧", "额定电压"],
+            "primary": ["中压侧", "额定", "电压"],
+            "secondary": ["值", "参数", "额定值"],
+            "exclude": ["容量", "电流", "CT", "变比", "过流", "零序", "段", "时间"]
+        },
+        "低压侧额定电压": {
+            "must": ["额定电压", "低压侧"],
+            "first": ["低压侧", "额定电压"],
+            "primary": ["低压侧", "额定", "电压"],
+            "secondary": ["值", "参数", "额定值"],
+            "exclude": ["容量", "电流", "CT", "变比", "过流", "零序", "段", "时间"]
+        },
+        "高压侧CT变比": {
+            "must": ["CT", "变比", "高压侧"],
+            "first": ["高压侧", "CT变比"],
+            "primary": ["高压侧", "CT", "变比"],
+            "secondary": ["值", "参数", "比值"],
+            "exclude": ["容量", "电压", "电流", "过流", "零序", "段", "时间"]
+        },
+        "中压侧CT变比": {
+            "must": ["CT", "变比", "中压侧"],
+            "first": ["中压侧", "CT变比"],
+            "primary": ["中压侧", "CT", "变比"],
+            "secondary": ["值", "参数", "比值"],
+            "exclude": ["容量", "电压", "电流", "过流", "零序", "段", "时间"]
+        },
+        "低压侧CT变比": {
+            "must": ["CT", "变比", "低压侧"],
+            "first": ["低压侧", "CT变比"],
+            "primary": ["低压侧", "CT", "变比"],
+            "secondary": ["值", "参数", "比值"],
+            "exclude": ["容量", "电压", "电流", "过流", "零序", "段", "时间"]
+        },
+        "复压过流I段电流定值": {
+            "must": ["复压过流"],
+            "first": ["Ⅰ段", "I段", "1段", "一段"],
+            "primary": ["复压过流", "电流"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["时间", "时限", "Ⅱ段", "II段", "2段", "二段", "Ⅲ段", "III段", "3段", "三段"]
+        },
+        "复压过流I段1时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["Ⅰ段1", "I段1", "1段1", "一段1"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "2时限", "3时限", "Ⅱ段", "III段", "反时限"]
+        },
+        "复压过流I段2时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["Ⅰ段2", "I段2", "1段2", "一段2"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "3时限", "Ⅱ段", "III段", "反时限"]
+        },
+        "复压过流I段3时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["Ⅰ段3", "I段3", "1段3", "一段3"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "2时限", "Ⅱ段", "III段", "反时限"]
+        },
+        "复压过流II段电流定值": {
+            "must": ["复压过流"],
+            "first": ["Ⅱ段", "II段", "2段", "二段"],
+            "primary": ["复压过流", "电流"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["时间", "时限", "Ⅰ段", "I段", "1段", "一段", "Ⅲ段", "III段", "3段", "三段"]
+        },
+        "复压过流II段1时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["II段1时限", "Ⅱ段1时限"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "2时限", "3时限", "Ⅰ段", "III段", "反时限"]
+        },
+        "复压过流II段2时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["II段2时限", "Ⅱ段2时限"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "3时限", "Ⅰ段", "III段", "反时限"]
+        },
+        "复压过流II段3时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["II段3时限", "Ⅱ段3时限"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "2时限", "Ⅰ段", "III段", "反时限"]
+        },
+        "复压过流III段电流定值": {
+            "must": ["复压过流"],
+            "first": ["Ⅲ段", "III段", "3段", "三段"],
+            "primary": ["复压过流", "电流"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["时间", "时限", "Ⅰ段", "I段", "1段", "一段", "Ⅱ段", "II段", "2段", "二段"]
+        },
+        "复压过流III段1时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["III段1时限", "Ⅲ段1时限"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "2时限", "3时限", "Ⅰ段", "II段", "反时限"]
+        },
+        "复压过流III段2时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["III段2时限", "Ⅲ段2时限"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "3时限", "Ⅰ段", "II段", "反时限"]
+        },
+        "复压过流III段3时限时间定值": {
+            "must": ["复压过流"],
+            "first": ["III段3时限", "Ⅲ段3时限"],
+            "primary": ["复压过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "2时限", "Ⅰ段", "II段", "反时限"]
+        },
+        "零序过流I段电流定值": {
+            "must": ["零序过流"],
+            "first": ["Ⅰ段", "I段", "1段", "一段"],
+            "primary": ["零序过流", "电流"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["时间", "时限", "Ⅱ段", "II段", "2段", "二段", "Ⅲ段", "III段", "3段", "三段"]
+        },
+        "零序过流I段1时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["I段1时限", "Ⅰ段1时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "2时限", "3时限", "Ⅱ段", "III段", "反时限"]
+        },
+        "零序过流I段2时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["I段2时限", "Ⅰ段2时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "3时限", "Ⅱ段", "III段", "反时限"]
+        },
+        "零序过流I段3时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["I段3时限", "Ⅰ段3时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "2时限", "Ⅱ段", "III段", "反时限"]
+        },
+        "零序过流II段电流定值": {
+            "must": ["零序过流"],
+            "first": ["Ⅱ段", "II段", "2段", "二段"],
+            "primary": ["零序过流", "电流"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["时间", "时限", "Ⅰ段", "I段", "1段", "一段", "Ⅲ段", "III段", "3段", "三段"]
+        },
+        "零序过流II段1时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["II段1时限", "Ⅱ段1时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "2时限", "3时限", "Ⅰ段", "III段", "反时限"]
+        },
+        "零序过流II段2时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["II段2时限", "Ⅱ段2时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "3时限", "Ⅰ段", "III段", "反时限"]
+        },
+        "零序过流II段3时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["II段3时限", "Ⅱ段3时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "2时限", "Ⅰ段", "III段", "反时限"]
+        },
+        "零序过流III段电流定值": {
+            "must": ["零序过流"],
+            "first": ["Ⅲ段", "III段", "3段", "三段"],
+            "primary": ["零序过流", "电流"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["时间", "时限", "Ⅰ段", "I段", "1段", "一段", "Ⅱ段", "II段", "2段", "二段"]
+        },
+        "零序过流III段1时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["III段1时限", "Ⅲ段1时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "2时限", "3时限", "Ⅰ段", "II段", "反时限"]
+        },
+        "零序过流III段2时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["III段2时限", "Ⅲ段2时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "3时限", "Ⅰ段", "II段", "反时限"]
+        },
+        "零序过流III段3时限时间定值": {
+            "must": ["零序过流"],
+            "first": ["III段3时限", "Ⅲ段3时限"],
+            "primary": ["零序过流", "时间", "时限"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["电流", "1时限", "2时限", "Ⅰ段", "II段", "反时限"]
+        },
+        "差动动作电流定值": {
+            "must": ["差动"],
+            "first": ["动作电流", "电流"],
+            "primary": ["差动", "动作", "电流"],
+            "secondary": ["定值", "值", "设置"],
+            "exclude": ["时间", "时限", "补偿", "系数", "距离", "过流", "段"]
+        },
+        "CT变比": {
+            "must": ["CT"],
+            "first": ["变比"],
+            "primary": ["CT", "变比"],
+            "secondary": ["值", "参数", "比值"],
+            "exclude": ["电流", "时间", "补偿", "系数", "距离", "过流", "段"]
         }
+    },
+
         }
 
 
@@ -580,64 +712,96 @@ class KeywordBasedParameterMapper:
         score = 0.0
         match = 0
         for keyword in patterns['must']:
+            print(text, keyword,self._fuzzy_contains(text, keyword))
             if self._fuzzy_contains(text, keyword):
                 match = 1
         if match == 0:
             return score
         # 关键第一词匹配（权重高）
         for keyword in patterns['first']:
+
             if self._fuzzy_contains(text, keyword):
                 score += 4.0  # 主要关键词得4分
         # 主要关键词匹配（权重高）
         for keyword in patterns['primary']:
+
             if self._fuzzy_contains(text, keyword):
                 score += 2.0  # 主要关键词得2分
 
         # 次要关键词匹配（权重低）
         for keyword in patterns['secondary']:
+
             if self._fuzzy_contains(text, keyword):
                 score += 0.5  # 次要关键词得0.5分
 
         # 排除关键词惩罚（如果包含排除关键词，大幅扣分）
         for keyword in patterns['exclude']:
+
             if self._fuzzy_contains(text, keyword):
-                score -= 5.0  # 排除关键词扣3分
+                score -= 5.0
 
         # 确保分数不为负
         return max(score, 0.0)
 
     def _fuzzy_contains(self, text: str, keyword: str) -> bool:
-        """模糊包含判断"""
-        # 完全包含
+        """模糊包含判断（增强段数区分）"""
+        # 1. 优先处理段数关键词的排他性（核心修改）
+        segments = {'Ⅰ段', 'I段', '1段', '一段',
+                    'Ⅱ段', 'II段', '2段', '二段',
+                    'Ⅲ段', 'III段', '3段', '三段'}
+        # 如果关键词是某段数，先检查文本中是否存在其他段数（若有则直接排除）
+        if keyword in segments:
+            # 提取文本中实际包含的段数
+            text_segments = [s for s in segments if self._strict_contains(text, s)]
+            # 若文本中存在其他段数，且不包含当前关键词，则返回False
+            if text_segments and keyword not in text_segments:
+                return False
+
+        # 2. 完全包含判断
         if keyword in text:
             return True
 
-        # 相似度匹配（处理OCR识别错误）
+        # 3. 相似度匹配（降低阈值至0.85，减少误判）
         similarity = difflib.SequenceMatcher(None, text, keyword).ratio()
-        if similarity > 0.8:  # 相似度阈值
+        if similarity > 0.85:  # 提高阈值，减少跨段匹配
             return True
 
-        # 处理常见的OCR识别错误
+        # 4. 常见OCR错误替换（细化段数错误映射）
         common_errors = {
-            'I': ['Ⅰ', 'l', '丨', '1'],
-            'II': ['Ⅱ', 'll', '2'],
-            'III': ['Ⅲ', 'lll', '3'],
+            'I段': ['Ⅰ段', 'l段', '丨段', '1段', '一段'],
+            'II段': ['Ⅱ段', 'll段', '2段', '二段'],
+            'III段': ['Ⅲ段', 'lll段', '3段', '三段'],
             '段': ['断'],
             '流': ['琉'],
             '电': ['龟'],
             '保': ['堡'],
             '护': ['户']
         }
-
-        # 检查常见错误替换
+        # 检查错误替换
         for correct, errors in common_errors.items():
+            if keyword != correct:
+                continue  # 只处理当前关键词的错误映射
             for error in errors:
-                if error in text and correct == keyword:
+                if error in text:
                     return True
                 if keyword in text.replace(error, correct):
                     return True
 
         return False
+
+    def _strict_contains(self, text: str, keyword: str) -> bool:
+        """严格包含判断（用于段数排他性校验）"""
+        common_errors = {
+            'I段': ['Ⅰ段', 'l段', '丨段', '1段', '一段'],
+            'II段': ['Ⅱ段', 'll段', '2段', '二段'],
+            'III段': ['Ⅲ段', 'lll段', '3段', '三段'],
+            '段': ['断'],
+            '流': ['琉'],
+            '电': ['龟'],
+            '保': ['堡'],
+            '护': ['户']
+        }
+        return keyword in text or any(kw in text for kw in common_errors.get(keyword, []))
 
     def _clean_parameter_name(self, param: str) -> str:
         """清理参数名"""
@@ -652,7 +816,22 @@ class SmartTableExtractor:
     def __init__(self, parameter_mapper: KeywordBasedParameterMapper):
         self.mapper = parameter_mapper
 
-    def extract_from_tables(self, table_data: list, format_type: str) -> dict:
+    def _fix_ocr_char_confusion(self, text: str) -> str:
+        """修复OCR常见的字符混淆问题"""
+        if not text:
+            return text
+        # 常见混淆映射：键为错误字符，值为正确字符
+        confusion_map = {
+            'O': '0',  # 字母O → 数字0
+            'o': '0',  # 小写o → 数字0
+            'l': '1',  # 字母l → 数字1
+        }
+        # 替换混淆字符
+        fixed_text = text
+        for wrong_char, right_char in confusion_map.items():
+            fixed_text = fixed_text.replace(wrong_char, right_char)
+        return fixed_text
+    def extract_from_tables(self, table_data: list, format_type: str,device_type:str) -> dict:
         """从表格数据中提取参数和数值 - 支持防重复映射"""
         results = {}
         # 维护已映射的标准参数集合
@@ -671,9 +850,9 @@ class SmartTableExtractor:
 
             # 根据格式提取数据
             if format_type == 'format2':
-                table_results = self._extract_format2_with_keywords(table_structure, mapped_std_params)
+                table_results = self._extract_format2_with_keywords(table_structure, mapped_std_params,device_type)
             else:
-                table_results = self._extract_format1_with_keywords(table_structure, mapped_std_params)
+                table_results = self._extract_format1_with_keywords(table_structure, mapped_std_params,device_type)
 
             print("当前表格提取结果:", table_results)
 
@@ -686,7 +865,7 @@ class SmartTableExtractor:
         print("最终提取结果:", results)
         return results
 
-    def _extract_format2_with_keywords(self, table_array: list, mapped_std_params: set) -> dict:
+    def _extract_format2_with_keywords(self, table_array: list, mapped_std_params: set,device_type:str) -> dict:
         """使用关键词匹配提取格式2数据 - 支持防重复映射"""
         results = {}
 
@@ -732,7 +911,7 @@ class SmartTableExtractor:
                     combined_name = name
 
                 # 使用关键词匹配映射到标准参数名，传入已映射参数集合
-                standardized_name = self.mapper.map_to_standard(combined_name, current_protection, mapped_std_params)
+                standardized_name = self.mapper.map_to_standard(combined_name, current_protection, mapped_std_params,device_type)
 
                 if standardized_name and standardized_name not in mapped_std_params:
                     results[standardized_name] = param_value
@@ -742,7 +921,7 @@ class SmartTableExtractor:
 
         return results
 
-    def _extract_format1_with_keywords(self, table_array: list, mapped_std_params: set) -> dict:
+    def _extract_format1_with_keywords(self, table_array: list, mapped_std_params: set,device_type:str) -> dict:
         """使用关键词匹配提取格式1数据 - 支持防重复映射"""
         results = {}
 
@@ -754,7 +933,7 @@ class SmartTableExtractor:
 
         # 智能查找列索引
         name_idx = self._find_column_by_keywords(headers, ['定值名称', '名称'])
-        value_idx = self._find_column_by_keywords(headers, ['定值', '整定值', '数值'])
+        value_idx = self._find_column_by_keywords(headers, ['定值', '整定值', '数值','新定值'])
 
         if name_idx is None or value_idx is None:
             return results
@@ -771,7 +950,7 @@ class SmartTableExtractor:
 
             if param_name and param_value and param_name != param_value and self._is_valid_value(param_value):
                 # 使用关键词匹配映射到标准参数名，传入已映射参数集合
-                standardized_name = self.mapper.map_to_standard(param_name, current_function, mapped_std_params)
+                standardized_name = self.mapper.map_to_standard(param_name, current_function, mapped_std_params,device_type)
 
                 if standardized_name and standardized_name not in mapped_std_params:
                     results[standardized_name] = param_value
@@ -873,9 +1052,9 @@ class SmartTableExtractor:
         """检查是否为有效的参数值"""
         if not value or value == "未识别到":
             return False
-
+        fixed_value = self._fix_ocr_char_confusion(value)
         # 检查是否包含数字或特殊字符
-        if re.search(r'[\d/]', value):
+        if re.search(r'[\d/]', fixed_value):
             return True
 
         return False
@@ -888,9 +1067,6 @@ class BasicInfoExtractor:
             'CT变比': r'CT变比[:：\s]*([\d/]+[A]?)',
             'PT变比': r'PT变比[:：\s]*([\d/\.]+[V]?)',
             '零序CT变比': r'零序CT变比[:：\s]*([\d/]+[A]?)',
-            '定值单编号': r'定值单编号[:：\s]*([\w\d-]+)',
-            '被保护设备': r'被保护设备[:：\s]*([^\s]+)',
-            '装置型号': r'装置型号[:：\s]*([A-Za-z0-9\-]+)'
         }
 
     def extract_basic_info(self, ocr_text: str) -> dict:
@@ -904,7 +1080,7 @@ class BasicInfoExtractor:
                 # 取最后一个匹配（通常是最具体的）
                 results[field] = matches[-1].strip()
                 print(f"  找到 {field}: {results[field]}")
-
+        print(results)
         return results
 
 
@@ -1052,7 +1228,7 @@ class EnhancedBaiduOCR:
 
         return device_model
 
-    def extract_protection_settings(self, image_path, target_params=None):
+    def extract_protection_settings(self, image_path, target_params=None,device_type='line_10'):
         all_results = {}
 
         # 获取表格识别结果
@@ -1060,7 +1236,7 @@ class EnhancedBaiduOCR:
         # 获取通用OCR结果用于基础信息提取
         ocr_text_result = self.general_ocr(image_path)
         ocr_text = self._get_full_text(ocr_text_result) if ocr_text_result else ""
-
+        print(ocr_text)
         # 1. 从表格中提取保护定值
         if table_result and 'tables_result' in table_result:
             # 检测格式
@@ -1070,14 +1246,14 @@ class EnhancedBaiduOCR:
             # 提取表格数据
             table_settings = self.table_extractor.extract_from_tables(
                 table_result['tables_result'],
-                format_type
+                format_type,device_type
             )
             all_results.update(table_settings)
 
         # # 2. 从通用文本中提取基础信息
-        # if ocr_text:
-        #     basic_info = self.basic_info_extractor.extract_basic_info(ocr_text)
-        #     all_results.update(basic_info)
+        if ocr_text:
+            basic_info = self.basic_info_extractor.extract_basic_info(ocr_text)
+            all_results.update(basic_info)
 
         # 3. 数值清洗
         cleaned_results = {}
@@ -1141,9 +1317,13 @@ class EnhancedBaiduOCR:
         """
         if not value_text or value_text == "未识别到":
             return ""
-
+        # 步骤1：修复OCR常见字符混淆（先于其他处理，避免误判）
+        confusion_map = {'O': '0', 'o': '0', 'l': '1', 'I': '1'}
+        fixed_text = value_text
+        for wrong, right in confusion_map.items():
+            fixed_text = fixed_text.replace(wrong, right)
         # 步骤1：去除所有字母（保留斜杠和数字相关符号）
-        value_without_letters = re.sub(r'[A-Za-z]', '', value_text)
+        value_without_letters = re.sub(r'[A-Za-z]', '', fixed_text)
 
         # 步骤2：去除干扰符号（保留小数点和斜杠）
         cleaned = re.sub(r'[-—_ ,，\s]', '', value_without_letters)

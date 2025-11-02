@@ -35,7 +35,11 @@ class Task(models.Model):
         ("failed", "失败")
     ], default="processing", verbose_name="任务状态")
     device_model = models.CharField(max_length=20, choices=[],blank=True, null=True,verbose_name="装置型号")
-
+    device_type = models.CharField(max_length=50,choices=[
+        ("line", "线路保护"),
+        ("line_10", "10kv线路保护"),
+        ("transform", "主变保护"),
+        ("busbar", "母差保护")], default="line",verbose_name="装置类型")
 
 
 class DeviceTemplate(models.Model):

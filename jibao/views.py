@@ -1,6 +1,5 @@
 import datetime
 import os
-import re
 from collections import defaultdict
 
 import requests
@@ -8,9 +7,7 @@ from django.utils import timezone
 from DjangoProject2 import settings
 from django.http import JsonResponse
 from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import Task, TaskImage, DeviceTemplate
+from .models import Task, TaskImage, DeviceTemplate, ProtectTemplate
 from.serializers import *
 from .ocr_model import get_baidu_ocr_instance
 ocr = get_baidu_ocr_instance()  # 使用增强版OCR
@@ -131,15 +128,23 @@ class TaskDetailView(APIView):
         task_images = TaskImage.objects.filter(
             task=task
         ).order_by('upload_time')
-        # 1. 获取所有 DeviceTemplate 的 device_model 列表
-        all_device_models = DeviceTemplate.objects.values_list('device_model', flat=True)
+        try:
+            template = ProtectTemplate.objects.filter(protect_type=task.device_type).first()
+        except ProtectTemplate.DoesNotExist:
+            return Response({"code": 400, "message": f"未找到{task.device_type}对应的装置模板"}, status=400)
 
-        # 2. 筛选出被 task.device_model 包含的子串
-        matching_models = [dm for dm in all_device_models if dm in task.device_model]
-
-        # 3. 查找匹配的记录
-        device_type = DeviceTemplate.objects.filter(device_model__in=matching_models).first()
-
+        # 同时记录参数所属层级（可选，用于前端展示层级关系）
+        param_with_level = []
+        required_params=[]
+        protection_dict = template.protection_structure
+        for level_name, param_list in protection_dict.items():
+            # 跳过空列表，避免无效参数
+            if not param_list or not isinstance(param_list, list):
+                continue
+            # 提取内层参数，添加到总列表
+            required_params.extend(param_list)
+            # 记录参数与层级的对应关系（可选，如需前端按层级显示可保留）
+            param_with_level.extend([{"level": level_name, "param": p} for p in param_list])
         # 构造图片列表数据（包含ID、URL、上传时间）
         images = []
         for img in task_images:
@@ -159,7 +164,8 @@ class TaskDetailView(APIView):
                 "ocr_result": task.ocr_result,
                 "test_files": [],
                 "device_model":task.device_model,
-                "device_type":device_type.device_type if device_type else None,
+                "device_type":task.device_type,
+                "param_with_level":param_with_level
             }
         })
 class TaskHistoryView(APIView):
@@ -293,12 +299,11 @@ class RecognizeDeviceModelView(APIView):
         if task.images.exists():
             device_model = ocr.extract_device_model(task.images.first().image.path,'装置型号')
         task.device_model = device_model or "未知型号"
-        task.save()
+
 
         # 3. 初始化返回核心数据（protect_type=保护层级，sub_protect_type=保护列表）
         protect_fault_relation = []  # 前端最终接收的列表
         template_found = True        # 标记是否找到匹配的装置模板
-        device_type='line'
         if device_model:
             try:
                 # 1. 获取所有 DeviceTemplate 的 device_model 列表
@@ -310,11 +315,12 @@ class RecognizeDeviceModelView(APIView):
                     # 3. 查找匹配的记录
                     template = DeviceTemplate.objects.filter(device_model__in=matching_models).first()
                     protect_fault_relation = template.protection_structure  # 简化后的结构：[]
-                    device_type = template.device_type
+                    task.device_type = template.device_type
                 else:
                     # 未识别到装置型号：返回空列表+提示
                     template_found = False
-                    protect_fault_relation = []
+                    protect = ProtectTemplate.objects.get(protect_type=task.device_type)
+                    protect_fault_relation = list(protect.protection_structure.keys())
             except DeviceTemplate.DoesNotExist:
                 # 未找到模板：返回默认的“保护层级-保护列表”映射
                 template_found = False
@@ -328,13 +334,13 @@ class RecognizeDeviceModelView(APIView):
             # 未识别到装置型号：返回空列表+提示
             template_found = False
             protect_fault_relation = []
-
+        task.save()
         # 4. 构建最终返回结果
         response = {
             "code": 200,
             "data": {
                 "device_model": device_model,          # 识别的装置型号
-                "device_type":device_type,
+                "device_type":task.device_type,
                 "protect_fault_relation": protect_fault_relation,  # 核心映射关系
                 "template_found": template_found       # 模板匹配状态（前端可提示）
             }
@@ -351,10 +357,9 @@ class ReloadModelConfigView(APIView):
     """根据用户手动输入的装置型号重新加载保护/故障类型配置"""
 
     def post(self, request, task_id):
-        print('000000000')
         openid = request.headers.get('openid')
         device_model = request.data.get('device_model', '').strip()
-
+        device_type = request.data.get('device_type', '').strip()
         try:
             task = Task.objects.get(id=task_id, user_openid=openid)
         except Task.DoesNotExist:
@@ -362,57 +367,16 @@ class ReloadModelConfigView(APIView):
 
         # 更新任务表中的装置型号（用户手动修改后）
         task.device_model = device_model
+        task.device_type = device_type
         task.save()
-        print('1111111')
-        # 重新查询匹配的保护/故障类型
-        protect_fault_relation = []
-        template_found = True
-        device_type='line'
-        if device_model:
+
+        if device_type:
             try:
-                # 模糊匹配装置模板（如PCS-931匹配PCS开头的模板）
-                template_prefix = device_model.split("-")[0]  # 提取型号前缀（如PCS-931→PCS）
-                template = DeviceTemplate.objects.get(
-                    device_model__iregex=rf'^{template_prefix}'  # 正则模糊匹配
-                )
-                protection_structure = template.protection_structure  # 简化后的结构：{主保护: [], 后备保护: []}
-                device_type = template.device_type
-                # 核心解析：遍历保护层级，构建返回结构
-                for protect_level, protect_list in protection_structure.items():
-                    # protect_level：保护层级（如“主保护”“后备保护”）→ 对应前端的protect_type
-                    # protect_list：该层级下的保护列表（如["差动保护"]）→ 对应前端的sub_protect_type
-                    protect_fault_relation.append({
-                        "protect_type": protect_level,  # 保护层级（主保护/后备保护）
-                        "sub_protect_type": protect_list,  # 该层级的保护列表
-                    })
-
-            except DeviceTemplate.DoesNotExist:
-                # 未找到模板：返回默认的“保护层级-保护列表”映射
-                template_found = False
-                protect_fault_relation = [
-                    {
-                        "protect_type": "主保护",
-                        "sub_protect_type": ["差动保护"],  # 主保护下的保护列表
-                    },
-                    {
-                        "protect_type": "后备保护",
-                        "sub_protect_type": [  # 后备保护下的保护列表
-                            "接地距离I段保护", "接地距离II段保护",
-                            "接地距离III段保护", "接地距离加速段保护",
-                            "相间距离I段保护", "相间距离II段保护",
-                            "零序过流I段保护", "零序过流加速段保护"
-                        ],
-                        "fault_configs": {}
-                    }
-                ]
-
-            except Exception as e:
-                # 其他异常（如结构解析错误）
-                print(f"模板解析异常: {str(e)}")
-                return Response({"code": 500, "message": "装置保护结构解析失败"}, status=500)
+                protect = ProtectTemplate.objects.get(protect_type=device_type)
+            except ProtectTemplate.DoesNotExist:
+                return Response({"code": 500, "message": "保护模板表不存在该保护类型"}, status=500)
+            protect_fault_relation = list(protect.protection_structure.keys() )
         else:
-            # 未识别到装置型号：返回空列表+提示
-            template_found = False
             protect_fault_relation = []
 
 
@@ -421,8 +385,6 @@ class ReloadModelConfigView(APIView):
             "data": {
                 'device_type': device_type,
                 "protect_fault_relation": protect_fault_relation,
-                "template_found": template_found,
-                "message": f"未找到「{device_model}」对应的装置模板，已使用默认配置" if not template_found else ""
             }
         })
 
@@ -493,11 +455,11 @@ class TaskOcrRecognitionView(APIView):
             return Response({"code": 404, "message": "任务不存在或无权限访问"}, status=404)
 
         # 2. 获取请求参数
-        device_model = request.data.get("device_model")
+        device_type = request.data.get("device_type")
         image_ids = request.data.get("image_ids", [])
 
-        if not device_model:
-            return Response({"code": 400, "message": "装置型号不能为空"}, status=400)
+        if not device_type:
+            return Response({"code": 400, "message": "保护类型不能为空"}, status=400)
 
         # 3. 获取需识别的图片列表
         try:
@@ -510,25 +472,33 @@ class TaskOcrRecognitionView(APIView):
                 return Response({"code": 400, "message": "未找到指定的定值单图片"}, status=400)
         except Exception as e:
             return Response({"code": 500, "message": f"获取图片失败：{str(e)}"}, status=500)
-        print('0000')
+
         # 4. 从模板获取需识别的参数列表
         try:
-            all_device_models = DeviceTemplate.objects.values_list('device_model', flat=True)
-            matching_models = [dm for dm in all_device_models if dm in task.device_model]
-            template = DeviceTemplate.objects.filter(device_model__in=matching_models).first()
-
+            template = ProtectTemplate.objects.filter(protect_type=device_type).first()
             if not template:
-                return Response({"code": 400, "message": f"未找到{device_model}对应的装置模板"}, status=400)
-            if not template.params:
-                return Response({"code": 400, "message": f"装置模板{device_model}的定值参数配置为空"}, status=400)
+                return Response({"code": 400, "message": f"未找到{device_type}对应的装置模板"}, status=400)
+            if not template.protection_structure:
+                return Response({"code": 400, "message": f"装置模板{device_type}的定值参数配置为空"}, status=400)
 
-            required_params = list(template.params.keys())
-            if not required_params or any(not p for p in required_params):
-                return Response({"code": 400, "message": f"装置模板{device_model}的定值参数存在无效值"}, status=400)
+            required_params = []
+            protection_dict = template.protection_structure
+            for level_name, param_list in protection_dict.items():
+                # 跳过空列表，避免无效参数
+                if not param_list or not isinstance(param_list, list):
+                    continue
+                # 提取内层参数，添加到总列表
+                required_params.extend(param_list)
+            # 校验参数有效性（排除空字符串、None等）
+            required_params = [p for p in required_params if p and isinstance(p, str)]
+            if not required_params:
+                return Response({"code": 400, "message": f"装置模板{device_type}的定值参数存在无效值或无参数"},
+                                status=400)
 
+            print(f"最终需识别的参数列表: {required_params}")
         except Exception as e:
             return Response({"code": 500, "message": f"解析模板失败：{str(e)}"}, status=500)
-        print('111111')
+
         # 5. 使用增强版OCR识别
         try:
             merged_results = defaultdict(list)
@@ -551,20 +521,17 @@ class TaskOcrRecognitionView(APIView):
                     }
                     image_recognition_details.append(img_details)
                     continue
-                print('ssssssssss')
                 img_path = img.image.path
 
                 # 只识别尚未识别的参数
                 remaining_params = [p for p in required_params if p not in recognized_params]
-                table_result = ocr.extract_protection_settings(img_path, remaining_params)
-                print('bbbbbbbbbbbb',table_result)
+                table_result = ocr.extract_protection_settings(img_path, remaining_params,device_type)
                 # 记录单张图片的识别结果
                 img_details = {
                     "image_id": img.id,
                     "image_name": img.image.name.split("/")[-1],
                     "recognized_params": []
                 }
-                print('yyyyyyyyyyyyyy')
                 # 处理识别结果
                 newly_recognized = []
                 for param in required_params:
@@ -593,7 +560,6 @@ class TaskOcrRecognitionView(APIView):
                 image_recognition_details.append(img_details)
 
                 print(f"图片 {img_index + 1}: 新识别参数 {newly_recognized}")
-            print('2222222222')
         except Exception as e:
             print('33333')
             return Response({"code": 500, "message": f"OCR识别失败：{str(e)}"}, status=500)
@@ -619,7 +585,6 @@ class TaskOcrRecognitionView(APIView):
         # 7. 更新任务状态
         try:
             task.ocr_result = final_params
-            task.device_model = device_model
             task.save()
             print(
                 f"✅ 任务{task_id}识别完成: {recognition_stats['recognized_params']}/{recognition_stats['total_params']}")
@@ -631,13 +596,6 @@ class TaskOcrRecognitionView(APIView):
         return Response({
             "code": 200,
             "message": f"已完成{len(task_images)}张图片的识别",
-            "data": {
-                "task_id": task_id,
-                "device_model": device_model,
-                "total_images": len(task_images),
-                "final_params": final_params,
-                "image_details": image_recognition_details
-            }
         })
 
 
@@ -697,7 +655,7 @@ class SaveOcrResultView(APIView):
         for key in delete_keys:
             if key in current_ocr_result:
                 del current_ocr_result[key]
-
+        print(new_params)
         # 4.2 执行更新/新增操作（新参数覆盖旧参数，新增参数追加）
         current_ocr_result.update(new_params)
 
