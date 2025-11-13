@@ -11,8 +11,10 @@ from .models import Task, TaskImage, DeviceTemplate, ProtectTemplate
 from.serializers import *
 from .ocr_model import get_baidu_ocr_instance
 ocr = get_baidu_ocr_instance()  # 使用增强版OCR
+
+
 class CreateTaskBaseView(APIView):
-    """创建任务基础信息接口"""
+    """创建任务基础信息接口（限制每人最多10条，超出删除最早一条）"""
 
     def post(self, request):
         openid = request.data.get('openid')
@@ -22,6 +24,21 @@ class CreateTaskBaseView(APIView):
                 "code": 400,
                 "message": "openid和task_name是必填项"
             }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 关键逻辑：查询用户现有任务数，超出10条则删除最早的
+        user_tasks = Task.objects.filter(user_openid=openid).order_by('create_time')  # 按创建时间升序（最早在前）
+        if user_tasks.count() >= 10:
+            oldest_task = user_tasks.first()  # 获取最早创建的任务
+            # 先删除该任务关联的所有图片（物理文件+数据库记录）
+            task_images = TaskImage.objects.filter(task=oldest_task)
+            for img in task_images:
+                if img.image and hasattr(img.image, 'path') and os.path.exists(img.image.path):
+                    os.remove(img.image.path)
+                img.delete()
+            # 再删除任务本身
+            oldest_task.delete()
+
+        # 正常创建新任务
         task = Task.objects.create(
             user_openid=openid,
             task_name=task_name
