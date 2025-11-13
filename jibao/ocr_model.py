@@ -186,14 +186,14 @@ class KeywordBasedParameterMapper:
             # 过流保护相关
             '过流I段电流定值': {
                 'must': ['过流'],
-                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段','过流段'],
                 'primary': ['过流', '电流'],
                 'secondary': ['定值', '值', '设置'],
                 'exclude': ['时间', '时限', 'Ⅱ段', 'Ⅱ段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段']
             },
             '过流I段时限定值': {
                 'must': ['过流'],
-                'first': ['Ⅰ段', 'I段', '1段', '一段'],
+                'first': ['Ⅰ段', 'I段', '1段', '一段','过流段'],
                 'primary': ['过流', '时间', '时限'],
                 'secondary': ['定值', '值', '设置'],
                 'exclude': ['电流', 'Ⅱ段', 'Ⅱ段', '2段', '二段', 'Ⅲ段', 'III段', '3段', '三段', '反时限']
@@ -730,54 +730,53 @@ class KeywordBasedParameterMapper:
             return score
         # 关键第一词匹配（权重高）
         for keyword in patterns['first']:
-
+            print(keyword,self._fuzzy_contains(text, keyword))
             if self._fuzzy_contains(text, keyword):
                 score += 4.0  # 主要关键词得4分
+                print(f'first{score}')
         # 主要关键词匹配（权重高）
         for keyword in patterns['primary']:
-
+            print(keyword, self._fuzzy_contains(text, keyword))
             if self._fuzzy_contains(text, keyword):
                 score += 2.0  # 主要关键词得2分
+                print(f'primary{score}')
 
         # 次要关键词匹配（权重低）
         for keyword in patterns['secondary']:
-
+            print(keyword, self._fuzzy_contains(text, keyword))
             if self._fuzzy_contains(text, keyword):
                 score += 0.5  # 次要关键词得0.5分
-
+                print(f'secondary{score}')
         # 排除关键词惩罚（如果包含排除关键词，大幅扣分）
         for keyword in patterns['exclude']:
-
+            print(keyword, self._fuzzy_contains(text, keyword))
             if self._fuzzy_contains(text, keyword):
                 score -= 5.0
+                print(f'exclude{score}')
 
         # 确保分数不为负
         return max(score, 0.0)
 
     def _fuzzy_contains(self, text: str, keyword: str) -> bool:
-        """模糊包含判断（增强段数区分）"""
-        # 1. 优先处理段数关键词的排他性（核心修改）
-        segments = {'Ⅰ段', 'I段', '1段', '一段',
-                    'Ⅱ段', 'II段', '2段', '二段',
-                    'Ⅲ段', 'III段', '3段', '三段'}
-        # 如果关键词是某段数，先检查文本中是否存在其他段数（若有则直接排除）
-        if keyword in segments:
-            # 提取文本中实际包含的段数
-            text_segments = [s for s in segments if self._strict_contains(text, s)]
-            # 若文本中存在其他段数，且不包含当前关键词，则返回False
-            if text_segments and keyword not in text_segments:
-                return False
+        """模糊包含判断（修复段数互斥问题）"""
+        # 1. 定义所有段数关键词集合（互斥组）
+        segment_keywords = {'Ⅰ段', 'I段', '1段', '一段',
+                            'Ⅱ段', 'II段', '2段', '二段',
+                            'Ⅲ段', 'III段', '3段', '三段'}
 
-        # 2. 完全包含判断
+        # 2. 段数关键词专属校验（核心修复）
+        if keyword in segment_keywords:
+            # 提取文本中实际存在的所有段数关键词
+            existing_segments = [seg for seg in segment_keywords if seg in text]
+            # 仅当文本中只存在目标段数（或无其他段数）时，才判定为匹配
+            return keyword in existing_segments and len(existing_segments) == 1
+
+        # 3. 原有正常匹配逻辑（非段数关键词沿用）
         if keyword in text:
             return True
-
-        # 3. 相似度匹配（降低阈值至0.85，减少误判）
         similarity = difflib.SequenceMatcher(None, text, keyword).ratio()
-        if similarity > 0.85:  # 提高阈值，减少跨段匹配
+        if similarity > 0.85:
             return True
-
-        # 4. 常见OCR错误替换（细化段数错误映射）
         common_errors = {
             'I段': ['Ⅰ段', 'l段', '丨段', '1段', '一段'],
             'II段': ['Ⅱ段', 'll段', '2段', '二段'],
@@ -788,16 +787,9 @@ class KeywordBasedParameterMapper:
             '保': ['堡'],
             '护': ['户']
         }
-        # 检查错误替换
         for correct, errors in common_errors.items():
-            if keyword != correct:
-                continue  # 只处理当前关键词的错误映射
-            for error in errors:
-                if error in text:
-                    return True
-                if keyword in text.replace(error, correct):
-                    return True
-
+            if keyword == correct and any(error in text for error in errors):
+                return True
         return False
 
     def _strict_contains(self, text: str, keyword: str) -> bool:
@@ -1215,7 +1207,6 @@ class EnhancedBaiduOCR:
         ocr_result = self.general_ocr(image_path)
         if not ocr_result or 'words_result' not in ocr_result:
             return None
-
         device_model = None
         found_device_label = False
         model_pattern = re.compile(r'[A-Za-z0-9\-]+')
